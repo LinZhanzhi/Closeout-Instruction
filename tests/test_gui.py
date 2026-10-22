@@ -52,7 +52,8 @@ def app(monkeypatch):
 
 def test_prompt_asks_for_both_files_then_generates(app, monkeypatch):
     calls = []
-    answers = iter(["/data/today/filled.csv", "/data/today/close out.csv"])
+    filled_answer = "/data/today/filled.csv"
+    answers = iter([filled_answer, "/data/today/close out.csv"])
 
     def fake_ask(**kwargs):
         calls.append(kwargs)
@@ -62,12 +63,14 @@ def test_prompt_asks_for_both_files_then_generates(app, monkeypatch):
     monkeypatch.setattr(gui.filedialog, "askopenfilename", fake_ask)
     monkeypatch.setattr(App, "generate", lambda self: generated.append(1))
     app.prompt_for_files()
-    assert app.filled.get() == "/data/today/filled.csv"
+    assert app.filled.get() == filled_answer
     assert app.closeout.get() == "/data/today/close out.csv"
     assert generated == [1]
     assert calls[0]["title"] == gui.FILLED_TITLE
     assert calls[1]["title"] == gui.CLOSEOUT_TITLE
-    assert calls[1]["initialdir"] == "/data/today"
+    # Mirror the production logic (str(Path(filled).parent)) so the expected
+    # separator matches the host OS instead of hard-coding a POSIX path.
+    assert calls[1]["initialdir"] == str(Path(filled_answer).parent)
 
 
 def test_prompt_stops_if_the_first_dialog_is_cancelled(app, monkeypatch):
