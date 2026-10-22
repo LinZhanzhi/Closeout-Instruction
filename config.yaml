@@ -1,0 +1,310 @@
+# Closeout instruction generator configuration - maintained by IT.
+# Every routing/classification rule the business might want to change lives here, not in
+# Python code. This file is bundled INSIDE the program when it is built, so a change reaches
+# users only when IT rebuilds and redistributes the program. See README.md "For IT".
+#
+# The program checks this whole file every time it starts and refuses to run, with a list of
+# what to fix, if anything is inconsistent - so a typo cannot silently mis-route trades.
+
+# Change this on every release. Users see it in the program window, so anyone can tell
+# which rules a copy of the program contains.
+rules_version: "2026-10-15"
+
+timezone: Asia/Singapore
+deadline_local_time: "20:30"
+
+# Each CSV is tried with these encodings in order, and the first one that yields the expected
+# Chinese column headers wins. Esunny normally exports GBK, but a file re-saved from Excel as
+# "CSV UTF-8" is utf-8-sig. Detection is per file, so filled and closeP can differ on the same day.
+input_encodings: [utf-8-sig, gbk]
+
+# --- Trade source classification (handover doc section "Account routing implemented in VBA") ---
+electronic_sources:
+  - 程式单
+  - 代理单
+  - E-Trade
+  - 经纪电子单
+  - 手机自主单
+
+manual_sources:
+  - 人工单
+
+# Anything not in electronic_sources or manual_sources is "unrecognised" and is
+# reported as an exception rather than guessed at. Observed unrecognised values
+# in sample data: Bloomberg, Carry单, 点价下单, 通道费.
+
+# --- Account classification (business purpose section of handover doc) ---
+# account_type: Omnibus | Speculative (business/margin classification)
+# closeout_method: manual_instruction | automatic | none
+#   manual_instruction -> desk sends a broker instruction (row goes to PN/OCBC sheet)
+#   automatic          -> broker closes it out automatically, no instruction needed (A2123N-B2)
+#   none               -> account is not expected to need a closeout instruction at all
+# NOTE: only BNS8001/8002/8004/8888 and A2123N-B1/B2/B3/B5 are confirmed by name in the
+# developer handover. The remaining "no need close-out" destinations (BNS8889, BNS8005/6,
+# BNS8007, BNS8008, A2123N-B7/B8/B9/B10) are inferred as Speculative/none by the same pattern
+# documented for BNS8004/BNS8888/A2123N-B5 (prefix-based accounts always marked no-instruction).
+# Confirm with the business before relying on this for accounts not in the handover. See README.
+#
+# NEW SUBACCOUNT at Phillip Nova or OCBC: add one line here first, then point a routing rule
+# at it below. A rule that names an account missing from this list is rejected at startup.
+account_type_map:
+  BNS8001: {account_type: Omnibus, closeout_method: manual_instruction}
+  BNS8002: {account_type: Omnibus, closeout_method: manual_instruction}
+  BNS8000: {account_type: Omnibus, closeout_method: manual_instruction}
+  BNS8003: {account_type: Omnibus, closeout_method: manual_instruction}
+  BNS8004: {account_type: Speculative, closeout_method: none}
+  BNS8888: {account_type: Speculative, closeout_method: none}
+  BNS8889: {account_type: Speculative, closeout_method: none}
+  BNS8005/6: {account_type: Speculative, closeout_method: none}
+  BNS8007: {account_type: Speculative, closeout_method: none}
+  BNS8008: {account_type: Speculative, closeout_method: none}
+  BNS8010: {account_type: Speculative, closeout_method: none}   # Wonderland (WON) UC, from 2026-10-15
+  A2123N-B1: {account_type: Omnibus, closeout_method: manual_instruction}
+  A2123N-B3: {account_type: Omnibus, closeout_method: manual_instruction}
+  A2123N-B2: {account_type: Omnibus, closeout_method: automatic}
+  A2123N-B5: {account_type: Speculative, closeout_method: none}
+  A2123N-B7: {account_type: Speculative, closeout_method: none}
+  A2123N-B8: {account_type: Speculative, closeout_method: none}
+  A2123N-B9: {account_type: Speculative, closeout_method: none}
+  A2123N-B10: {account_type: Speculative, closeout_method: none}
+
+# Labels shown in the summary sheet's exclusion_reason column for accounts whose
+# closeout_method is "none" or "automatic" (i.e. instruction_required = false).
+no_closeout_reason_labels:
+  none: "No need close-out"
+  automatic: "Auto close, no need email"
+
+# --- Phillip Nova (member 400) routing rules, evaluated in order, first match wins. ---
+# Fields available to conditions: account_prefix, exchange, contract_product, contract_type
+# (futures|option), source_category (electronic|manual|unrecognised), internal_account.
+# ops: equals | in | starts_with | starts_with_any
+#
+# A rule may set "outcome: exception" with "exception_category" instead of a destination.
+# This reproduces one documented legacy quirk: a GLE-prefixed customer trading anything
+# other than UC/FE has no destination in the VBA (priority "5a" in the handover) - it is
+# captured by the GLE branch and never falls through to the generic exchange/source rules.
+#
+# The ORDER of the rules in this file decides which one wins. "priority" is only a reference
+# number back to the handover document; the program does not sort by it.
+#
+# NEW CLIENT ACCOUNT at Phillip Nova: copy the DUK rule below, change the prefix (always the
+# first 3 characters of 资金账号, in quotes if it is all digits) and the destination, and keep
+# it up here with the other customer-prefix rules so it is checked before the general
+# exchange/source rules. instruction_required must be true only when the destination's
+# closeout_method is manual_instruction.
+pn_routing:
+  - priority: 1
+    label: "Customer prefix DUK"
+    all_of:
+      - {field: account_prefix, op: equals, value: DUK}
+    destination: BNS8888
+    instruction_required: false
+
+  - priority: 2
+    label: "Customer prefix ELI"
+    all_of:
+      - {field: account_prefix, op: equals, value: ELI}
+    destination: BNS8889
+    instruction_required: false
+
+  - priority: 3
+    label: "Customer prefix GLO"
+    all_of:
+      - {field: account_prefix, op: equals, value: GLO}
+    destination: "BNS8005/6"
+    instruction_required: false
+
+  - priority: 4
+    label: "Contract begins CPO"
+    all_of:
+      - {field: contract_product, op: starts_with, value: CPO}
+    destination: BNS8004
+    instruction_required: false
+
+  - priority: 5
+    label: "Customer prefix GLE, contract begins UC or FE"
+    all_of:
+      - {field: account_prefix, op: equals, value: GLE}
+      - {field: contract_product, op: starts_with_any, value: [UC, FE]}
+    destination: BNS8007
+    instruction_required: false
+
+  - priority: 5b
+    label: "Customer prefix GLE, other products (legacy: no destination assigned)"
+    all_of:
+      - {field: account_prefix, op: equals, value: GLE}
+    outcome: exception
+    exception_category: no_destination
+
+  # Wonderland UC moved from BNS8001 (Omnibus) to BNS8010 (Speculative) on 2026-10-15; no
+  # closeout instruction is generated. Other WON products still follow the general rules below.
+  - priority: WON
+    label: "Customer prefix WON, contract UC"
+    all_of:
+      - {field: account_prefix, op: equals, value: WON}
+      - {field: contract_product, op: equals, value: UC}
+    destination: BNS8010
+    instruction_required: false
+
+  - priority: 6
+    label: "HKEX, customer prefix SUL"
+    all_of:
+      - {field: exchange, op: equals, value: HKEX}
+      - {field: account_prefix, op: equals, value: SUL}
+    destination: BNS8888
+    instruction_required: false
+
+  - priority: 7
+    label: "HKEX, customer prefix OLY or KIN"
+    all_of:
+      - {field: exchange, op: equals, value: HKEX}
+      - {field: account_prefix, op: in, value: [OLY, KIN]}
+    destination: BNS8008
+    instruction_required: false
+
+  - priority: 8
+    label: "Other HKEX customers"
+    all_of:
+      - {field: exchange, op: equals, value: HKEX}
+    destination: BNS8001
+    instruction_required: true
+
+  - priority: 9
+    label: "KRX"
+    all_of:
+      - {field: exchange, op: equals, value: KRX}
+    destination: BNS8003
+    instruction_required: true
+
+  - priority: 10
+    label: "Electronic-source option on OSE, contract begins NK225 or JPN"
+    all_of:
+      - {field: source_category, op: equals, value: electronic}
+      - {field: contract_type, op: equals, value: option}
+      - {field: exchange, op: equals, value: OSE}
+      - {field: contract_product, op: starts_with_any, value: [NK225, JPN]}
+    destination: BNS8001
+    instruction_required: true
+
+  - priority: 11
+    label: "Other electronic-source options"
+    all_of:
+      - {field: source_category, op: equals, value: electronic}
+      - {field: contract_type, op: equals, value: option}
+    destination: BNS8000
+    instruction_required: true
+
+  - priority: 12
+    label: "Electronic-source futures"
+    all_of:
+      - {field: source_category, op: equals, value: electronic}
+    destination: BNS8001
+    instruction_required: true
+
+  - priority: 13
+    label: "Manual source"
+    all_of:
+      - {field: source_category, op: equals, value: manual}
+    destination: BNS8002
+    instruction_required: true
+
+# priority 14 (implicit, not a rule row): nothing above matched. If source_category is
+# "unrecognised" this is reported as exception category unknown_source, otherwise
+# no_destination. See routing.py.
+
+# --- OCBC (member 303) routing: source rules first, then unconditional prefix overrides. ---
+ocbc_source_rules:
+  - priority: 1
+    label: "Electronic, exact internal account 232P or 239P"
+    all_of:
+      - {field: source_category, op: equals, value: electronic}
+      - {field: internal_account, op: in, value: ["232P", "239P"]}
+    destination: A2123N-B2
+    instruction_required: false
+
+  - priority: 2
+    label: "Other electronic"
+    all_of:
+      - {field: source_category, op: equals, value: electronic}
+    destination: A2123N-B3
+    instruction_required: true
+
+  - priority: 3
+    label: "Manual, customer prefix TOR or SPA"
+    all_of:
+      - {field: source_category, op: equals, value: manual}
+      - {field: account_prefix, op: in, value: [TOR, SPA]}
+    destination: A2123N-B5
+    instruction_required: false
+
+  - priority: 4
+    label: "Other manual"
+    all_of:
+      - {field: source_category, op: equals, value: manual}
+    destination: A2123N-B1
+    instruction_required: true
+
+# Applied after the source rules above, regardless of source classification. If a prefix
+# matches here it overrides whatever the source rules decided (this is how the legacy VBA
+# behaves: the prefix check is a separate unconditional block run after the source block).
+#
+# NEW CLIENT ACCOUNT at OCBC with its own subaccount: add one line here.
+ocbc_prefix_overrides:
+  - {account_prefix: DUK, destination: "A2123N-B10", instruction_required: false}
+  - {account_prefix: ETE, destination: "A2123N-B7", instruction_required: false}
+  - {account_prefix: LAK, destination: "A2123N-B8", instruction_required: false}
+  - {account_prefix: SUL, destination: "A2123N-B9", instruction_required: false}
+  - {account_prefix: MON, destination: "A2123N-B7", instruction_required: false}
+
+# --- Exchange code conversion (ES -> PN / OCBC), from the legacy workbook's "data" sheet ---
+exchange_map:
+  BMD: {pn: KLCE, ocbc: XKLS}
+  CBOT: {pn: CBOT, ocbc: XCBT}
+  CME: {pn: CME, ocbc: XCME}
+  EUREX: {pn: EUREX, ocbc: XEUR}
+  HKEX: {pn: HKFE, ocbc: XHKF}
+  ICEU: {pn: IPE, ocbc: IFEU}
+  ICUS: {pn: NYBOT, ocbc: IFUS}
+  NYMEX: {pn: NYMEX, ocbc: XNYM}
+  OSE: {pn: OSE, ocbc: XOSE}
+  SGX: {pn: SIMEX, ocbc: XSIM}
+  TOCOM: {pn: TOCOM, ocbc: null}
+  COMEX: {pn: null, ocbc: XCEC}
+  KRX: {pn: KSE, ocbc: null}
+
+# --- Product code conversion (ES -> PN / OCBC), from the legacy workbook's "data" sheet ---
+# NOT exchange-qualified in the legacy tool (a product code means the same thing on every
+# exchange). Reproduced as-is; collisions are not expected but would need reconciling if found.
+product_map:
+  CN: {pn: CN, ocbc: CN}
+  CPO: {pn: PO, ocbc: FCPO}
+  CUS: {pn: CUS, ocbc: CUS}
+  FE: {pn: FEF, ocbc: FEF}
+  HHI: {pn: HCEI, ocbc: HHI}
+  HSI: {pn: HS, ocbc: HSI}
+  HTI: {pn: HTI, ocbc: HTI}
+  IN: {pn: IN, ocbc: IN}
+  MCA: {pn: MCA, ocbc: MCA}
+  MEG: {pn: MEG, ocbc: MEG}
+  MCS: {pn: MCS, ocbc: MCS}
+  MHI: {pn: MHI, ocbc: MHI}
+  UC: {pn: UC, ocbc: UC}
+  JRU: {pn: JRU, ocbc: AK}
+  TF: {pn: TF, ocbc: TF}
+  NK: {pn: NK, ocbc: NK}
+  JY: {pn: JY, ocbc: JY}
+  CD: {pn: CD, ocbc: CD}
+  TWN: {pn: TWN, ocbc: TWN}
+  NK225: {pn: NK, ocbc: NK}
+  BZ: {pn: BZF, ocbc: BZF}
+  PX: {pn: PXF, ocbc: PXF}
+  MCH: {pn: MCH, ocbc: MCH}
+  BZN: {pn: BZN, ocbc: BZN}
+  KOS: {pn: KS, ocbc: null}
+  # PXN: OCBC code confirmed by the 26 Aug instruction actually sent to OCBC
+  # (A2123N-B1 / F-XSIM-PXN-202701). PN code not yet known - left null so a PN PXN trade is
+  # flagged as missing_product_mapping instead of guessed. Fill in once confirmed.
+  PXN: {pn: null, ocbc: PXN}
+
+# Esunny month letters, in calendar order (Jan..Dec), used for the PN Contract_Month code.
+month_letters: [F, G, H, J, K, M, N, Q, U, V, X, Z]
