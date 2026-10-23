@@ -1,8 +1,11 @@
 # PyInstaller build recipe. Build with:   pyinstaller closeout.spec
 #
-# config.yaml is bundled inside the program, so users cannot edit the rules and a rule change
-# is released by rebuilding. Build on the operating system the users run: PyInstaller cannot
-# make a Windows .exe from a Mac, or the reverse.
+# config.yaml is bundled inside the program as the factory-default rules. At runtime the
+# program prefers an editable config.yaml placed BESIDE the executable and re-reads it on
+# every run, so IT can update the rules without rebuilding; the bundled copy is only the
+# fallback when no external file sits next to the program. Ship Closeout.exe together with a
+# config.yaml if you want hot rule updates. Build on the operating system the users run:
+# PyInstaller cannot make a Windows .exe from a Mac, or the reverse.
 import sys
 
 a = Analysis(
