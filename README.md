@@ -43,10 +43,35 @@ the file. Check the `exceptions` sheet first, then use the `PN` and `OCBC` sheet
 If the program says it could not read a file or could not load the rules, it writes nothing.
 The bottom of the window shows the rules version, which is what IT will ask for.
 
-## For IT: changing the rules and releasing a new version
+## For IT: changing the rules
 
-Users never edit rules. `config.yaml` is bundled inside the program when it is built, so a
-rule change is released by editing `config.yaml`, checking it, rebuilding, and redistributing.
+All routing/classification rules live in `config.yaml`; none of *who gets routed where* is
+hardcoded in Python. The program **re-reads `config.yaml` from disk on every run**, so most
+rule changes need no rebuild at all.
+
+### Hot update (no rebuild)
+
+Place an edited `config.yaml` in the **same folder as `Closeout.exe`**. The next
+**Generate instructions** loads it, re-validates it, and shows the new `rules_version` at the
+bottom of the window. If the file is inconsistent, the program lists every problem and
+**generates nothing** - it never falls back to a stale or half-saved rules file.
+
+- The external file beside the program always wins. If it is absent, the program uses the
+  copy bundled inside it as the factory default.
+- Command-line runs behave the same: `--config path\to\config.yaml` points at any rules file,
+  and omitting it uses the external-then-bundled resolution above.
+- Because the rules file is now editable outside the program, keep it in an IT-controlled
+  folder. Every output workbook carries `rules_version`, so an audit can tell which rules
+  produced it.
+
+Rebuilding (below) is only needed to change the **bundled factory default**, to ship to a new
+machine, or when the *engine* itself changes (a new `field`/`op`, a new broker, an output
+template change) - not for ordinary account/product/routing edits.
+
+### Releasing a new built version
+
+A rule change is released as a new build by editing `config.yaml`, checking it, rebuilding,
+and redistributing.
 
 ### 1. Edit `config.yaml`
 
@@ -346,7 +371,7 @@ Two fixes came out of that review: input encoding is now detected automatically 
 
 ```
 closeout/
-├── config.yaml              # all routing/classification rules (bundled into the program)
+├── config.yaml              # all routing/classification rules (re-read every run; also bundled as the factory default)
 ├── closeout.spec            # PyInstaller build recipe
 ├── main.py                  # entry point: opens the window, or runs scripted with arguments
 ├── src/

@@ -101,3 +101,40 @@ def test_dialog_message_is_passed_only_on_macos(app, monkeypatch, platform, expe
     assert ("message" in seen) is expects_message
     if expects_message:
         assert seen["message"] == gui.FILLED_TITLE
+
+
+def test_generate_reloads_the_rules_from_disk_before_running(app, monkeypatch):
+    reloaded = {"rules_version": "2026-99-99"}
+    monkeypatch.setattr(gui, "load_config", lambda path=None: reloaded)
+    seen = {}
+
+    def fake_run(filled, closeout, output, config):
+        seen["config"] = config
+        return result(exceptions=0)
+
+    monkeypatch.setattr(gui, "run", fake_run)
+    monkeypatch.setattr(gui.messagebox, "askyesno", lambda *a, **k: False)
+    app.filled.set("/data/filled.csv")
+    app.closeout.set("/data/close out.csv")
+    app.generate()
+    # the freshly-loaded rules drive the run, and the window shows the new version
+    assert seen["config"] is reloaded
+    assert app.rules_version.get() == "Rules version 2026-99-99"
+
+
+def test_generate_refuses_and_runs_nothing_when_the_reloaded_rules_are_broken(app, monkeypatch):
+    def boom(path=None):
+        raise ValueError("config.yaml has 1 problem(s):\n- broken")
+
+    monkeypatch.setattr(gui, "load_config", boom)
+    ran = []
+    monkeypatch.setattr(gui, "run", lambda *a, **k: ran.append(1))
+    errors = []
+    monkeypatch.setattr(gui.messagebox, "showerror", lambda *a, **k: errors.append(a))
+    app.filled.set("/data/filled.csv")
+    app.closeout.set("/data/close out.csv")
+    app.generate()
+    # a broken rules file stops the run entirely - the pipeline never executes
+    assert ran == []
+    assert errors and "could not be loaded" in errors[0][1]
+    assert "Nothing was generated" in app.status.get()

@@ -45,12 +45,14 @@ def open_file(path: Path) -> None:
 
 
 class App:
-    def __init__(self, root: tk.Tk, config: dict) -> None:
+    def __init__(self, root: tk.Tk, config: dict, config_path: str | Path | None = None) -> None:
         self.root = root
         self.config = config
+        self.config_path = config_path  # re-read on every Generate so rule edits need no rebuild
         self.filled = tk.StringVar()
         self.closeout = tk.StringVar()
         self.status = tk.StringVar(value="Choose the two files exported from Esunny.")
+        self.rules_version = tk.StringVar(value=f"Rules version {config['rules_version']}")
 
         frame = ttk.Frame(root, padding=16)
         frame.grid(sticky="nsew")
@@ -60,7 +62,7 @@ class App:
             row=2, column=1, columnspan=2, sticky="e", pady=(12, 0)
         )
         ttk.Label(frame, textvariable=self.status).grid(row=3, column=0, columnspan=3, sticky="w", pady=(12, 0))
-        ttk.Label(frame, text=f"Rules version {config['rules_version']}", foreground="gray").grid(
+        ttk.Label(frame, textvariable=self.rules_version, foreground="gray").grid(
             row=4, column=0, columnspan=3, sticky="w", pady=(4, 0)
         )
 
@@ -101,6 +103,18 @@ class App:
             messagebox.showwarning(APP_TITLE, "Choose both files first.")
             return
 
+        # Hot-reload the rules from disk before every run, so IT can edit the config.yaml that
+        # sits beside the program and the next Generate picks it up with no rebuild. A file
+        # that fails validation is reported and the run is refused - we never generate from a
+        # broken or half-saved rules file.
+        try:
+            self.config = load_config(self.config_path)
+        except Exception as exc:
+            self.status.set("The rules could not be loaded. Nothing was generated.")
+            messagebox.showerror(APP_TITLE, f"The rules could not be loaded, so nothing was generated.\n\n{exc}")
+            return
+        self.rules_version.set(f"Rules version {self.config['rules_version']}")
+
         output_path = default_output_path(Path(self.closeout.get()))
         self.status.set("Working...")
         self.root.update()
@@ -132,7 +146,7 @@ def launch(config_path: str | Path | None = None) -> None:
         messagebox.showerror(APP_TITLE, f"The rules could not be loaded. Please contact IT.\n\n{exc}")
         return
 
-    app = App(root, config)
+    app = App(root, config, config_path)
     # Tk started from a terminal often opens behind it on macOS.
     root.lift()
     root.attributes("-topmost", True)

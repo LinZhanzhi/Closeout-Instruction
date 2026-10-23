@@ -2,11 +2,19 @@
 only thing standing between a typo and every user's output. These tests make the mistakes
 IT is most likely to make and confirm each one is caught with a usable message."""
 import copy
+import sys
 
 import pytest
 import yaml
 
-from src.config import ConfigError, load_config, validate_config
+from src.config import (
+    ConfigError,
+    bundled_config_path,
+    default_config_path,
+    external_config_path,
+    load_config,
+    validate_config,
+)
 from src.routing import route_ocbc, route_pn
 
 
@@ -144,3 +152,39 @@ def test_load_config_reports_every_problem_at_once(cfg, tmp_path):
     message = str(error.value)
     assert "config.yaml has 2 problem(s)" in message
     assert "NEWC" in message and "BNS8099" in message
+
+
+# --- where the rules are loaded from: external file beside the program, bundled fallback ---
+
+
+def test_external_config_beside_the_program_is_preferred(tmp_path, monkeypatch):
+    # Simulate a frozen build: sys.frozen set and sys.executable sitting next to a config.yaml.
+    external = tmp_path / "config.yaml"
+    external.write_text("rules_version: external\n", encoding="utf-8")
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "executable", str(tmp_path / "Closeout.exe"))
+    assert external_config_path().resolve() == external.resolve()
+    assert default_config_path().resolve() == external.resolve()
+
+
+def test_bundled_config_is_the_fallback_when_no_external_file(tmp_path, monkeypatch):
+    exe_dir = tmp_path / "exe"
+    exe_dir.mkdir()
+    bundle = tmp_path / "bundle"
+    bundle.mkdir()
+    (bundle / "config.yaml").write_text("rules_version: bundled\n", encoding="utf-8")
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "executable", str(exe_dir / "Closeout.exe"))
+    monkeypatch.setattr(sys, "_MEIPASS", str(bundle), raising=False)
+    assert not external_config_path().exists()
+    assert default_config_path() == bundled_config_path() == bundle / "config.yaml"
+
+
+def test_load_config_uses_the_external_file_when_present(tmp_path, monkeypatch, config):
+    edited = copy.deepcopy(config)
+    edited["rules_version"] = "hot-reloaded"
+    external = tmp_path / "config.yaml"
+    external.write_text(yaml.safe_dump(edited, allow_unicode=True), encoding="utf-8")
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "executable", str(tmp_path / "Closeout.exe"))
+    assert load_config()["rules_version"] == "hot-reloaded"

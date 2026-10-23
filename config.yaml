@@ -1,10 +1,12 @@
 # Closeout instruction generator configuration - maintained by IT.
 # Every routing/classification rule the business might want to change lives here, not in
-# Python code. This file is bundled INSIDE the program when it is built, so a change reaches
-# users only when IT rebuilds and redistributes the program. See README.md "For IT".
+# Python code. The program re-reads this file from disk on every run, so IT can update the
+# rules WITHOUT rebuilding: place an edited config.yaml in the same folder as Closeout.exe
+# and the next "Generate instructions" picks it up. (A copy is also bundled inside the program
+# and is used as the factory default when no external file sits beside it.) See README "For IT".
 #
-# The program checks this whole file every time it starts and refuses to run, with a list of
-# what to fix, if anything is inconsistent - so a typo cannot silently mis-route trades.
+# The program checks this whole file every time it loads it and refuses to generate, with a
+# list of what to fix, if anything is inconsistent - so a typo cannot silently mis-route trades.
 
 # Change this on every release. Users see it in the program window, so anyone can tell
 # which rules a copy of the program contains.

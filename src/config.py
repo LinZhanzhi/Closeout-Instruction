@@ -50,8 +50,24 @@ def bundled_config_path() -> Path:
     return base / "config.yaml"
 
 
+def external_config_path() -> Path:
+    # The editable copy that sits beside the program, so IT can update the rules without a
+    # rebuild: next to the .exe when frozen, the project root when run from source. It may
+    # not exist yet - default_config_path() falls back to the bundled copy when it doesn't.
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent / "config.yaml"
+    return Path(__file__).resolve().parent.parent / "config.yaml"
+
+
+def default_config_path() -> Path:
+    # Prefer the editable external file (hot-reloaded on every run); otherwise use the copy
+    # bundled inside the program as the factory default.
+    external = external_config_path()
+    return external if external.exists() else bundled_config_path()
+
+
 def load_config(path: str | Path | None = None) -> dict:
-    path = Path(path) if path else bundled_config_path()
+    path = Path(path) if path else default_config_path()
     with open(path, encoding="utf-8") as f:
         config = yaml.safe_load(f)
 
